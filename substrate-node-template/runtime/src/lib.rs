@@ -285,6 +285,9 @@ impl pallet_loosely_coupling::Config for Runtime {
 	type IncreaseValue = TemplateModule;
 }
 
+impl pallet_kitties::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+}
 
 
 
@@ -308,6 +311,7 @@ construct_runtime!(
 		TemplateModule: pallet_template,
 		TightlyCoupling: pallet_tightly_coupling,
 		LooselyCoupling: pallet_loosely_coupling,
+		Kitties: pallet_kitties,
 	}
 );
 

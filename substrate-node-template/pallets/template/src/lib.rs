@@ -34,6 +34,7 @@ pub mod pallet {
 	}
 
 	#[derive(Encode, Decode, TypeInfo, MaxEncodedLen)]
+	#[scale_info(skip_type_params(T))]
 	pub struct Student<T:Config> {
 		id: Index,
 		class: Class,
