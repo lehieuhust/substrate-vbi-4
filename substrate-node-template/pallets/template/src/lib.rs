@@ -22,27 +22,39 @@ pub mod pallet {
 	use frame_support::dispatch::Vec;
 	use scale_info::TypeInfo;
 	use frame_support::BoundedVec;
+	use frame_support::dispatch::fmt;
 	pub type Index = u64;
 
 	pub type Limit = u8;
 
-	#[derive(Encode, Decode, TypeInfo, MaxEncodedLen)]
+	#[derive(Encode, Decode, TypeInfo, MaxEncodedLen, RuntimeDebug, Clone, PartialEq)]
 	pub enum Class {
 		A, 
 		B, 
 		C,
 	}
 
-	#[derive(Encode, Decode, TypeInfo, MaxEncodedLen)]
+	#[derive(Encode, Decode, TypeInfo)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Student<T:Config> {
 		id: Index,
 		class: Class,
-		name:Name,
+		name:Vec<u8>,
 		account:T::AccountId,
 	
 	}
 
+	impl<T:Config> fmt::Debug for Student<T> {
+		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+			f.debug_struct("Student")
+			 .field("id", &self.id)
+			 .field("class", &self.class)
+			 .field("name", &self.name)
+			 .field("account", &self.account)
+
+			 .finish()
+		}
+	}
 	#[derive(Encode,Decode, TypeInfo)]
 	pub struct Name(Vec<u8>);
 	impl MaxEncodedLen for Name {
@@ -56,7 +68,7 @@ pub mod pallet {
 	}
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
-	//#[pallet::without_storage_info]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
 	/// Configure the pallet by specifying the parameters and types on which it depends.
@@ -140,6 +152,25 @@ pub mod pallet {
 
 			// Emit an event.
 			Self::deposit_event(Event::SomethingStored(something, who));
+			// Return a successful DispatchResultWithPostInfo
+			Ok(())
+		}
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+		pub fn create_student(origin: OriginFor<T>, id: Index, class: Class, name: Vec<u8>) -> DispatchResult {
+			// Check that the extrinsic was signed and get the signer.
+			// This function will return an error if the extrinsic is not signed.
+			// https://docs.substrate.io/main-docs/build/origins/
+			let who = ensure_signed(origin)?;
+			
+			let new_student = Student::<T> {
+				id,
+				class,
+				name,
+				account:who
+			};
+
+			log::info!("New student:{:?}",new_student);
+
 			// Return a successful DispatchResultWithPostInfo
 			Ok(())
 		}
