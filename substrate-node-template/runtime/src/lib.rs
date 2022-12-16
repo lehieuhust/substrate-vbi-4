@@ -287,6 +287,9 @@ impl pallet_loosely_coupling::Config for Runtime {
 
 impl pallet_kitties::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type KittyTime = Timestamp;
+	type KittyRandom = RandomnessCollectiveFlip;
 }
 
 

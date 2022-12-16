@@ -6,6 +6,9 @@ use frame_support::pallet_prelude::DispatchResult;
 /// <https://docs.substrate.io/reference/frame-pallets/>
 pub use pallet::*;
 
+
+// minh set token decimal 18:
+// 1 token = 100000000... 
 #[cfg(test)]
 mod mock;
 
@@ -22,7 +25,16 @@ use scale_info::TypeInfo;
 pub type Id = u32;
 use sp_runtime::ArithmeticError;
 
+use frame_support::traits::{ReservableCurrency, Currency};
 
+type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance; // u128
+
+use frame_support::traits::Time;
+use frame_support::traits::UnixTime;
+use sp_runtime::SaturatedConversion;
+use frame_support::traits::Randomness;
+
+use sp_runtime::traits::Hash;
 #[frame_support::pallet]
 pub mod pallet {
 
@@ -30,10 +42,12 @@ pub mod pallet {
 	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Kitty<T: Config> {
-		pub dna: Vec<u8>,
+		pub dna: T::Hash,
 		pub price: u64,
 		pub gender: Gender,
 		pub owner: T::AccountId,
+		// pub created_date : <<T as Config>::KittyTime as Time>::Moment ,
+		pub created_date: u64,
 	}
 	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	pub enum Gender {
@@ -51,8 +65,15 @@ pub mod pallet {
 	pub trait Config: frame_system::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+		type Currency: ReservableCurrency<Self::AccountId>;
+		// type KittyTime: Time;
+		type KittyTime: Time;
+
+		type KittyRandom: Randomness<Self::Hash, Self::BlockNumber>;
 	}
 
+	//Config::Currency -> thông qua 1 Generic Type T
 
 
 	#[pallet::storage]
@@ -61,15 +82,11 @@ pub mod pallet {
 
 	#[pallet::storage]
 	#[pallet::getter(fn get_kitty)]
-	pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, Vec<u8>, Kitty<T>, OptionQuery>;
+	pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, T::Hash, Kitty<T>, OptionQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn kitty_owned)]
-	pub(super) type KittiesOwned<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, Vec<Vec<u8>>, ValueQuery>;
-
-
-
-
+	pub(super) type KittiesOwned<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, Vec<T::Hash>, ValueQuery>;
 
 
 
@@ -79,8 +96,8 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// A new kitty was successfully created.
-		Created { kitty: Vec<u8>, owner: T::AccountId },
-		Transferred { from: T::AccountId, to: T::AccountId, kitty:Vec<u8> },
+		Created { kitty: T::Hash, owner: T::AccountId },
+		Transferred { from: T::AccountId, to: T::AccountId, kitty:T::Hash },
 
 	}
 
@@ -101,12 +118,17 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 
 		#[pallet::weight(0)]
-		pub fn create_kitty(origin: OriginFor<T>, dna: Vec<u8>) -> DispatchResult {
+		pub fn create_kitty(origin: OriginFor<T>) -> DispatchResult {
 			// Make sure the caller is from a signed origin
 			let owner = ensure_signed(origin)?;
 
-			let gender = Self::gen_gender(&dna)?;
-			let kitty = Kitty::<T> { dna: dna.clone(), price: 0, gender, owner: owner.clone() };
+			let dna =  Self::gen_dna();
+			let gender = Self::gen_gender(&dna.encode())?;
+			// let now = T::KittyTime::now();
+			// let now = T::KittyTime::now().as_secs();
+			let now = T::KittyTime::now().saturated_into();
+
+			let kitty = Kitty::<T> { dna: dna.clone(), price: 0, gender, owner: owner.clone(), created_date: now };
 
 			// Check if the kitty does not already exist in our storage map
 			ensure!(!Kitties::<T>::contains_key(&kitty.dna), Error::<T>::DuplicateKitty);
@@ -122,6 +144,8 @@ pub mod pallet {
 			Kitties::<T>::insert(kitty.dna.clone(), kitty);
 			KittyId::<T>::put(next_id);
 
+			// let _ = T::Currency::reserve(&owner, 1000u32.into())?;
+			let _ = T::Currency::reserve(&owner,BalanceOf::<T>::from(10u32))?;			
 			// Deposit our "Created" event.
 			Self::deposit_event(Event::Created { kitty: dna, owner: owner.clone()});
 
@@ -132,7 +156,7 @@ pub mod pallet {
 		pub fn transfer(
 			origin: OriginFor<T>,
 			to: T::AccountId,
-			dna: Vec<u8>,
+			dna: T::Hash,
 		) -> DispatchResult {
 			// Make sure the caller is from a signed origin
 			let from = ensure_signed(origin)?;
@@ -164,17 +188,30 @@ pub mod pallet {
 		}
 
 	}
-}
 
-impl<T> Pallet<T> {
-	fn gen_gender(dna: &Vec<u8>) -> Result<Gender,Error<T>>{
-		let mut res = Gender::Female;
-		if dna.len() % 2 ==0 {
-			res = Gender::Male;
+
+	impl<T: Config> Pallet<T> {
+		fn gen_gender(dna: &Vec<u8>) -> Result<Gender,Error<T>>{
+			let mut res = Gender::Female;
+			if dna.len() % 2 ==0 {
+				res = Gender::Male;
+			}
+			Ok(res)
 		}
-		Ok(res)
+	
+		fn gen_dna() -> T::Hash {
+			let block_number = <frame_system::Pallet<T>>::block_number();
+			let (seed,_) = T::KittyRandom::random_seed();
+			T::Hashing::hash_of(&(seed,block_number))
+	
+			// let (res,_) = T::KittyRandom::random(b"dung");
+	
+			// res
+			
+		}
 	}
 }
+
 
 
 
